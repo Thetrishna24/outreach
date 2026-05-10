@@ -24,3 +24,4 @@ data/
 # IDE
 .vscode/
 .idea/
+targets.md
