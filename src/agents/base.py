@@ -5,6 +5,7 @@ just need to provide a system prompt and a list of tools.
 """
 
 from dataclasses import dataclass
+from math import dist
 from typing import Any, Callable
 from anthropic import Anthropic
 import time
@@ -35,7 +36,7 @@ class Agent:
         self,
         name: str,
         system_prompt: str,
-        tools: list[Tool] | None = None,
+        tools: list[Tool | dict] | None = None,
         model: str = "claude-sonnet-4-5",
         max_iterations: int = 10,
         max_tokens: int = 4096,
@@ -50,18 +51,27 @@ class Agent:
         self.client = client or Anthropic()
 
     def _tools_for_api(self) -> list[dict]:
-        """Convert Tool objects to the format the Anthropic API expects."""
-        return [
-            {
-                "name": t.name,
-                "description": t.description,
-                "input_schema": t.input_schema,
-            }
-            for t in self.tools
-        ]
+        """Convert tools to the format the API expects.
+
+        Custom Tool objects get converted; native tool dicts pass through.
+        """
+        api_tools = []
+        for t in self.tools:
+            if isinstance(t, Tool):
+                api_tools.append({
+                    "name": t.name,
+                    "description": t.description,
+                    "input_schema": t.input_schema,
+                })
+            else:
+                api_tools.append(t)
+        return api_tools
 
     def _find_tool(self, name: str) -> Tool | None:
-        return next((t for t in self.tools if t.name == name), None)
+        for t in self.tools:
+            if isinstance(t, Tool) and t.name == name:
+                return t
+        return None
 
     def run(self, user_input: str) -> AgentResult:
         """Run the agent loop until it produces a final response or hits limits."""
@@ -73,6 +83,8 @@ class Agent:
         try:
             for _ in range(self.max_iterations):
                 iterations += 1
+                if iterations > 1:
+                    time.sleep(2)
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=self.max_tokens,
@@ -101,13 +113,18 @@ class Agent:
                     for block in response.content:
                         if block.type == "tool_use":
                             tool = self._find_tool(block.name)
-                            if not tool:
-                                result = f"Error: tool '{block.name}' not found"
-                            else:
-                                try:
-                                    result = tool.handler(**block.input)
-                                except Exception as e:
-                                    result = f"Tool error: {e}"
+                            if tool is None:
+                                tool_calls_log.append({
+                                    "tool": block.name,
+                                    "input": block.input,
+                                    "output": "[handled by Anthropic server-side]",
+                                })
+                                continue
+
+                            try:
+                                result = tool.handler(**block.input)
+                            except Exception as e:
+                                result = f"Tool error: {e}"
 
                             tool_calls_log.append({
                                 "tool": block.name,
@@ -120,11 +137,10 @@ class Agent:
                                 "content": str(result),
                             })
 
-                    messages.append({"role": "user", "content": tool_results})
+                    # Only send a tool_result message if we have any from custom tools
+                    if tool_results:
+                        messages.append({"role": "user", "content": tool_results})
                     continue
-
-                # Unexpected stop reason — bail out
-                break
 
             return AgentResult(
                 output=None,
