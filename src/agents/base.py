@@ -1,9 +1,3 @@
-"""Agent base class for the outreach tracker.
-
-All agents inherit this. It handles the LLM tool-use loop so subclasses
-just need to provide a system prompt and a list of tools.
-"""
-
 from dataclasses import dataclass
 from math import dist
 from typing import Any, Callable
@@ -88,7 +82,13 @@ class Agent:
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=self.max_tokens,
-                    system=self.system_prompt,
+                    system=[
+                        {
+                            "type": "text",
+                            "text": self.system_prompt,
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
                     tools=self._tools_for_api() if self.tools else [],
                     messages=messages,
                 )
