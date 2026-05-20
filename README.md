@@ -5,4 +5,5 @@ each matching professor's name, title, department, research focus, profile URL a
 
 
 # The agent loop
-![Agent loop diagram](IMG/Img1.png)
+![Architecture](IMG/Img1.png)
+![Agent loop diagram](IMG/Img2.png)
